@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f6feb">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>Wiadomość</title>
+<style>
+  :root { --bg:#f4f6fa; --card:#fff; --text:#14181f; --accent:#1f6feb; --ok:#1a7f37; --err:#cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#10141b; --card:#1b212c; --text:#eef1f6; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:16px;
+    padding-top:calc(16px + env(safe-area-inset-top, 0px));
+    padding-bottom:calc(24px + env(safe-area-inset-bottom, 0px)); }
+  h1 { font-size:1.2rem; margin:4px 0 14px; }
+  .who { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+  .who button { padding:16px; font-size:1.2rem; font-weight:600; border-radius:14px;
+    border:3px solid transparent; background:var(--card); color:var(--text); }
+  .who button.on { border-color:var(--accent); background:var(--accent); color:#fff; }
+  .presets { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+  .presets button { min-height:84px; padding:10px; font-size:1.15rem; font-weight:600;
+    border-radius:14px; border:none; background:var(--card); color:var(--text);
+    box-shadow:0 1px 3px rgba(0,0,0,.2); }
+  .presets button:active { transform:scale(.97); }
+  textarea { width:100%; min-height:110px; padding:14px; font-size:1.15rem; border-radius:14px;
+    border:2px solid #8b949e55; background:var(--card); color:var(--text); font-family:inherit; resize:vertical; }
+  #send { width:100%; margin-top:10px; padding:18px; font-size:1.3rem; font-weight:700;
+    border:none; border-radius:14px; background:var(--accent); color:#fff; }
+  #send:disabled { opacity:.5; }
+  #status { margin-top:14px; min-height:1.6em; text-align:center; font-size:1.1rem; font-weight:600; }
+  #status.ok { color:var(--ok); } #status.err { color:var(--err); }
+  #setup { display:none; padding:16px; border-radius:14px; background:var(--card); line-height:1.5; }
+</style>
+</head>
+<body>
+<main>
+  <div id="setup">
+    Aplikacja nie jest jeszcze skonfigurowana. Otwórz specjalny link konfiguracyjny (z dopiskiem <b>#...</b> na końcu), który dostałeś od Igora.
+  </div>
+
+  <div id="app">
+    <h1>Kto pisze?</h1>
+    <div class="who">
+      <button id="w-Mom" class="on" data-who="Mom">Mama</button>
+      <button id="w-Dad" data-who="Dad">Tata</button>
+    </div>
+
+    <div class="presets" id="presets"></div>
+
+    <textarea id="text" placeholder="Wpisz wiadomość…"></textarea>
+    <button id="send">Wyślij</button>
+    <div id="status" role="status"></div>
+  </div>
+</main>
+
+<script>
+// ---- EDIT THESE: the one-tap buttons ----
+const PRESETS = [
+  "Obiad gotowy",
+  "Chodź tutaj",
+  "Telefon do ciebie",
+  "Zejdź na dół",
+  "Chodź jeść",
+  "Odezwij się do nas"
+];
+// -----------------------------------------
+
+const NTFY = "https://ntfy.sh/";
+let who = localStorage.getItem("who") || "Mom";
+
+// The secret topic is passed once in the link (#topic) and then remembered on this phone.
+// It is never stored in the page's code, so a public GitHub repo does not expose it.
+if (location.hash.length > 1) {
+  try { localStorage.setItem("topic", decodeURIComponent(location.hash.slice(1))); } catch (e) {}
+  history.replaceState(null, "", location.pathname + location.search);
+}
+const topic = (() => { try { return localStorage.getItem("topic"); } catch (e) { return null; } })();
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status");
+
+if (!topic) { $("setup").style.display = "block"; $("app").style.display = "none"; }
+
+function setWho(w) {
+  who = w;
+  try { localStorage.setItem("who", w); } catch (e) {}
+  document.querySelectorAll(".who button").forEach(b => b.classList.toggle("on", b.dataset.who === w));
+}
+document.querySelectorAll(".who button").forEach(b => b.addEventListener("click", () => setWho(b.dataset.who)));
+setWho(who);
+
+function show(msg, cls) {
+  statusEl.textContent = msg;
+  statusEl.className = cls || "";
+  if (cls === "ok") setTimeout(() => { statusEl.textContent = ""; statusEl.className = ""; }, 3500);
+}
+
+async function sendMessage(text) {
+  text = text.trim();
+  if (!text) { show("Wpisz najpierw wiadomość", "err"); return false; }
+  $("send").disabled = true;
+  show("Wysyłanie…");
+  try {
+    const r = await fetch(NTFY + encodeURIComponent(topic), {
+      method: "POST",
+      headers: { "Title": who },
+      body: text
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    show("Wysłano ✓", "ok");
+    if (navigator.vibrate) navigator.vibrate(80);
+    return true;
+  } catch (e) {
+    show("Nie udało się wysłać. Sprawdź internet.", "err");
+    return false;
+  } finally {
+    $("send").disabled = false;
+  }
+}
+
+PRESETS.forEach(p => {
+  const b = document.createElement("button");
+  b.textContent = p;
+  b.addEventListener("click", () => sendMessage(p));
+  $("presets").appendChild(b);
+});
+
+$("send").addEventListener("click", async () => {
+  if (await sendMessage($("text").value)) $("text").value = "";
+});
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>

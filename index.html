@@ -19,10 +19,10 @@
     padding-top:calc(16px + env(safe-area-inset-top, 0px));
     padding-bottom:calc(24px + env(safe-area-inset-bottom, 0px)); }
   h1 { font-size:1.2rem; margin:4px 0 14px; }
-  .who { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
-  .who button { padding:16px; font-size:1.2rem; font-weight:600; border-radius:14px;
+  .to { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+  .to button { padding:16px 8px; font-size:1.2rem; font-weight:600; border-radius:14px;
     border:3px solid transparent; background:var(--card); color:var(--text); }
-  .who button.on { border-color:var(--accent); background:var(--accent); color:#fff; }
+  .to button.on { border-color:var(--accent); background:var(--accent); color:#fff; }
   .presets { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
   .presets button { min-height:84px; padding:10px; font-size:1.15rem; font-weight:600;
     border-radius:14px; border:none; background:var(--card); color:var(--text);
@@ -45,11 +45,8 @@
   </div>
 
   <div id="app">
-    <h1>Kto pisze?</h1>
-    <div class="who">
-      <button id="w-Mom" class="on" data-who="Mom">Mama</button>
-      <button id="w-Dad" data-who="Dad">Tata</button>
-    </div>
+    <h1>Do kogo?</h1>
+    <div class="to" id="to"></div>
 
     <div class="presets" id="presets"></div>
 
@@ -60,7 +57,13 @@
 </main>
 
 <script>
-// ---- EDIT THESE: the one-tap buttons ----
+// ---- EDIT THESE ----
+// Who can receive messages. "id" must match MY_TAG in that computer's family_speaker.py.
+const RECIPIENTS = [
+  { id: "pc1", label: "Komputer 1" },
+  { id: "pc2", label: "Komputer 2" }
+];
+// One-tap buttons
 const PRESETS = [
   "Obiad gotowy",
   "Chodź tutaj",
@@ -69,31 +72,45 @@ const PRESETS = [
   "Chodź jeść",
   "Odezwij się do nas"
 ];
-// -----------------------------------------
+// --------------------
 
 const NTFY = "https://ntfy.sh/";
-let who = localStorage.getItem("who") || "Mom";
 
-// The secret topic is passed once in the link (#topic) and then remembered on this phone.
-// It is never stored in the page's code, so a public GitHub repo does not expose it.
+// Setup link looks like:  .../family/#t=SECRETTOPIC&who=Mom   (or who=Dad)
+// It is read once, saved on this phone, then removed from the address bar,
+// so the secret topic never lives in the public code.
+function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
 if (location.hash.length > 1) {
-  try { localStorage.setItem("topic", decodeURIComponent(location.hash.slice(1))); } catch (e) {}
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (p.get("t")) store("topic", p.get("t"));
+  if (p.get("who")) store("who", p.get("who"));
   history.replaceState(null, "", location.pathname + location.search);
 }
-const topic = (() => { try { return localStorage.getItem("topic"); } catch (e) { return null; } })();
+const topic = load("topic");
+const who = load("who");   // "Mom" or "Dad"; this is what the laptop speaks
+let to = load("to");
+if (!RECIPIENTS.some(r => r.id === to)) to = RECIPIENTS[0].id;
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status");
 
-if (!topic) { $("setup").style.display = "block"; $("app").style.display = "none"; }
+if (!topic || !who) { $("setup").style.display = "block"; $("app").style.display = "none"; }
 
-function setWho(w) {
-  who = w;
-  try { localStorage.setItem("who", w); } catch (e) {}
-  document.querySelectorAll(".who button").forEach(b => b.classList.toggle("on", b.dataset.who === w));
+function setTo(id) {
+  to = id;
+  store("to", id);
+  document.querySelectorAll(".to button").forEach(b => b.classList.toggle("on", b.dataset.id === id));
 }
-document.querySelectorAll(".who button").forEach(b => b.addEventListener("click", () => setWho(b.dataset.who)));
-setWho(who);
+RECIPIENTS.forEach(r => {
+  const b = document.createElement("button");
+  b.textContent = r.label;
+  b.dataset.id = r.id;
+  b.addEventListener("click", () => setTo(r.id));
+  $("to").appendChild(b);
+});
+setTo(to);
 
 function show(msg, cls) {
   statusEl.textContent = msg;
@@ -109,11 +126,12 @@ async function sendMessage(text) {
   try {
     const r = await fetch(NTFY + encodeURIComponent(topic), {
       method: "POST",
-      headers: { "Title": who },
+      headers: { "Title": who, "Tags": to },
       body: text
     });
     if (!r.ok) throw new Error("HTTP " + r.status);
-    show("Wysłano ✓", "ok");
+    const label = RECIPIENTS.find(x => x.id === to).label;
+    show("Wysłano do: " + label + " ✓", "ok");
     if (navigator.vibrate) navigator.vibrate(80);
     return true;
   } catch (e) {

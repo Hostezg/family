@@ -23,6 +23,9 @@
   .to button { padding:16px 8px; font-size:1.2rem; font-weight:600; border-radius:14px;
     border:3px solid transparent; background:var(--card); color:var(--text); }
   .to button.on { border-color:var(--accent); background:var(--accent); color:#fff; }
+  .dot { display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:8px;
+    background:#8b949e; border:2px solid #ffffff99; vertical-align:middle; }
+  .dot.up { background:#2ea043; } .dot.down { background:#f85149; }
   .presets { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
   .presets button { min-height:84px; padding:10px; font-size:1.15rem; font-weight:600;
     border-radius:14px; border:none; background:var(--card); color:var(--text);
@@ -60,14 +63,14 @@
 // ---- EDIT THESE ----
 // Who can receive messages. "id" must match MY_TAG in that computer's family_speaker.py.
 const RECIPIENTS = [
-  { id: "pc1", label: "Igor" },
-  { id: "pc2", label: "Oskar" }
+  { id: "pc1", label: "Komputer 1" },
+  { id: "pc2", label: "Komputer 2" }
 ];
 // One-tap buttons
 const PRESETS = [
   "Obiad gotowy",
   "Chodź tutaj",
-  "Odbierz telefon",
+  "Telefon do ciebie",
   "Zejdź na dół",
   "Chodź jeść",
   "Odezwij się do nas"
@@ -105,12 +108,34 @@ function setTo(id) {
 }
 RECIPIENTS.forEach(r => {
   const b = document.createElement("button");
-  b.textContent = r.label;
   b.dataset.id = r.id;
+  b.innerHTML = '<span class="dot" id="dot-' + r.id + '"></span>';
+  b.appendChild(document.createTextNode(r.label));
   b.addEventListener("click", () => setTo(r.id));
   $("to").appendChild(b);
 });
 setTo(to);
+
+// ---- online indicator: reads the heartbeats the laptops send to <topic>-status ----
+const online = {};
+async function checkOnline() {
+  await Promise.all(RECIPIENTS.map(async (r) => {
+    try {
+      const res = await fetch(NTFY + encodeURIComponent(topic + "-status") +
+        "/json?poll=1&since=150s&tags=" + encodeURIComponent(r.id));
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const txt = await res.text();
+      online[r.id] = txt.split("\n").some(l => { try { return JSON.parse(l).event === "message"; } catch (e) { return false; } });
+    } catch (e) { online[r.id] = undefined; }
+    const dot = document.getElementById("dot-" + r.id);
+    if (dot) dot.className = "dot" + (online[r.id] === true ? " up" : online[r.id] === false ? " down" : "");
+  }));
+}
+if (topic && who) {
+  checkOnline();
+  setInterval(checkOnline, 30000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkOnline(); });
+}
 
 function show(msg, cls) {
   statusEl.textContent = msg;
@@ -131,7 +156,8 @@ async function sendMessage(text) {
     });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const label = RECIPIENTS.find(x => x.id === to).label;
-    show("Wysłano do: " + label + " ✓", "ok");
+    if (online[to] === false) show("Wysłano do: " + label + ", ale komputer wygląda na wyłączony", "err");
+    else show("Wysłano do: " + label + " ✓", "ok");
     if (navigator.vibrate) navigator.vibrate(80);
     return true;
   } catch (e) {

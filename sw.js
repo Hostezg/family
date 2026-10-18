@@ -1,7 +1,7 @@
 // Minimal service worker: caches the app shell so the page opens instantly.
 // Messages themselves always go to the network.
-const CACHE = "family-pwa-v1";
-const SHELL = ["./", "index.html", "icon-192.png", "icon-512.png"];
+const CACHE = "family-pwa-v2";
+const SHELL = ["./", "index.html", "config.js", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));

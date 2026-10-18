@@ -39,6 +39,13 @@
   #status { margin-top:14px; min-height:1.6em; text-align:center; font-size:1.1rem; font-weight:600; }
   #status.ok { color:var(--ok); } #status.err { color:var(--err); }
   #setup { display:none; padding:16px; border-radius:14px; background:var(--card); line-height:1.5; }
+  #replies { margin-bottom:14px; }
+  .reply { background:var(--card); border-left:6px solid var(--ok); border-radius:12px;
+    padding:12px 14px; margin-bottom:8px; }
+  .reply small { display:block; opacity:.7; font-size:.95rem; font-weight:600; }
+  .reply span { display:block; margin-top:2px; font-size:1.35rem; font-weight:700; overflow-wrap:anywhere; }
+  #clear { display:none; background:none; border:none; color:var(--accent); font-size:1rem;
+    font-weight:600; padding:4px 2px; margin-bottom:6px; }
 </style>
 </head>
 <body>
@@ -48,6 +55,9 @@
   </div>
 
   <div id="app">
+    <div id="replies"></div>
+    <button id="clear">Wyczyść odpowiedzi</button>
+
     <h1>Do kogo?</h1>
     <div class="to" id="to"></div>
 
@@ -59,25 +69,12 @@
   </div>
 </main>
 
+<!-- names and one-tap buttons live in config.js -->
+<script src="config.js"></script>
 <script>
-// ---- EDIT THESE ----
-// Who can receive messages. "id" must match MY_TAG in that computer's family_speaker.py.
-const RECIPIENTS = [
-  { id: "pc1", label: "Igor" },
-  { id: "pc2", label: "Oskar" }
-];
-// One-tap buttons
-const PRESETS = [
-  "Obiad gotowy",
-  "Chodź tutaj",
-  "Telefon do ciebie",
-  "Zejdź na dół",
-  "Chodź jeść",
-  "Odezwij się do nas"
-];
-// --------------------
-
 const NTFY = "https://ntfy.sh/";
+const REPLY_HISTORY = "6h";   // how far back replies are shown when the app opens
+const MAX_REPLIES = 4;
 
 // Setup link looks like:  .../family/#t=SECRETTOPIC&who=Mom   (or who=Dad)
 // It is read once, saved on this phone, then removed from the address bar,
@@ -137,6 +134,48 @@ if (topic && who) {
   document.addEventListener("visibilitychange", () => { if (!document.hidden) checkOnline(); });
 }
 
+// ---- replies: the computers answer on <topic>-reply-<mom|dad>, so only this phone gets them ----
+const replies = [];          // newest first
+const seenIds = new Set();
+
+function renderReplies() {
+  const box = $("replies");
+  box.textContent = "";
+  replies.forEach(r => {
+    const card = document.createElement("div");
+    card.className = "reply";
+    const head = document.createElement("small");
+    head.textContent = r.label + " · odpowiedź · " + r.time;
+    const body = document.createElement("span");
+    body.textContent = r.text;
+    card.appendChild(head);
+    card.appendChild(body);
+    box.appendChild(card);
+  });
+  $("clear").style.display = replies.length ? "block" : "none";
+}
+
+function addReply(m) {
+  if (!m || m.event !== "message" || seenIds.has(m.id)) return;
+  seenIds.add(m.id);
+  const tags = m.tags || [];
+  const rec = RECIPIENTS.find(r => tags.includes(r.id));
+  const time = new Date(m.time * 1000).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+  replies.unshift({ label: rec ? rec.label : (m.title || "Komputer"), text: m.message || "", time });
+  if (replies.length > MAX_REPLIES) replies.pop();
+  renderReplies();
+  if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+}
+
+$("clear").addEventListener("click", () => { replies.length = 0; renderReplies(); });
+
+if (topic && who) {
+  const replyTopic = topic + "-reply-" + who.toLowerCase();
+  const es = new EventSource(NTFY + encodeURIComponent(replyTopic) + "/sse?since=" + REPLY_HISTORY);
+  es.onmessage = (e) => { try { addReply(JSON.parse(e.data)); } catch (err) {} };
+}
+
+// ---- sending ----
 function show(msg, cls) {
   statusEl.textContent = msg;
   statusEl.className = cls || "";
